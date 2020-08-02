@@ -82,10 +82,11 @@ for page in pageList:
         oldContent.flush()
         newContent.flush()
         subprocess.call(["vim", "-d", oldContent.name, newContent.name])
-        overwrite = input("Update wiki page with new content at " + page.newUrl + " ? (Y/n)")
-        if overwrite == "Y":
+        overwrite = input("Update wiki page with new content at " + page.newUrl + " ? (y/n)")
+        if overwrite == "y":
             if not os.path.exists('backup'):
                 os.makedirs('backup')
+            os.makedirs(os.path.dirname("backup/" + page.page.name), exist_ok=True)
             with open("backup/" + page.page.name + ".md", 'w+') as backupfile:
                 backupfile.write(page.content)
             try:
@@ -97,7 +98,7 @@ for page in pageList:
             else:
                 print("Modifying page with name", page.newname)
                 reddit.subreddit(subreddit).wiki[page.newname].edit(content=page.newContent, reason="Archiving old Wiki Pages")
-            replaceOldText = input("Replace the text of the page with the end of mark message? (Y/n) ")
-            if replaceOldText == "Y":
+            replaceOldText = input("Replace the text of the page with the end of mark message? (y/n) ")
+            if replaceOldText == "y":
                 print("Modifying page with name", page.page.name)
                 reddit.subreddit(subreddit).wiki[page.page.name].edit(content=overwriteMessage, reason="End of mark")
