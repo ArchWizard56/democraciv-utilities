@@ -1,0 +1,549 @@
+<html class="sl-theme-dark">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="stylesheet" href="https://ka-f.webawesome.com/webawesome@3.7.0/styles/webawesome.css" />
+    <script type="module" src="https://ka-f.webawesome.com/webawesome@3.7.0/webawesome.loader.js"></script>
+  </head>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      font-family: system-ui, sans-serif;
+    }
+
+    .ad-banner {
+      width: 100%;
+      max-width: 728px;
+      min-height: 90px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin: 1rem auto;
+      background: rgba(255,255,255,0.03);
+      border: 1px dashed rgba(255,255,255,0.1);
+      border-radius: 4px;
+      color: rgba(255,255,255,0.2);
+      font-size: 0.75rem;
+    }
+
+    .page-wrap {
+      display: flex;
+      width: 100%;
+      max-width: 1200px;
+      gap: 1rem;
+      padding: 0 clamp(0.5rem, 2vw, 1rem);
+      flex: 1;
+    }
+
+    wa-card.card-header {
+      flex: 1;
+      min-width: 0;
+      min-height: 100vh;
+      --border-radius: 0;
+      --padding: clamp(1rem, 4vw, 2.5rem);
+    }
+
+    .ad-sidebar {
+      width: 360px;
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+      padding-top: 1rem;
+    }
+    .ad-sidebar-slot {
+      width: 360px;
+      min-height: 600px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: rgba(255,255,255,0.03);
+      border: 1px dashed rgba(255,255,255,0.1);
+      border-radius: 4px;
+      color: rgba(255,255,255,0.2);
+      font-size: 0.75rem;
+      position: sticky;
+      top: 1rem;
+    }
+
+    @media (max-width: 768px) {
+      .ad-sidebar-slot { display: none; }
+      .ad-banner { max-width: 320px; min-height: 50px; }
+    }
+
+    .controls {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+    .controls wa-input, .controls wa-select {
+      flex: 1;
+      min-width: 140px;
+    }
+    wa-textarea { width: 100%; margin-bottom: 1rem; }
+    wa-button { margin-bottom: 1.5rem; }
+    #output {
+      font-family: 'Courier New', monospace;
+      font-size: 0.85rem;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: rgba(0,0,0,0.2);
+      border-radius: 6px;
+      padding: clamp(0.75rem, 3vw, 1.5rem);
+      min-height: 100px;
+      line-height: 1.6;
+    }
+    .sample-link {
+      font-size: 0.8rem;
+      cursor: pointer;
+      opacity: 0.7;
+      margin-bottom: 0.5rem;
+      display: inline-block;
+    }
+    .sample-link:hover { opacity: 1; }
+  </style>
+  <body>
+
+    <div class="ad-banner">
+            <script src='https://dcash.archwizard.xyz/embed.js?publisher=1&format=banner'> </script>
+    </div>
+
+    <div class="page-wrap">
+      <wa-card class="card-header">
+        <h3 slot="header">STV / IRV Calculator</h3>
+
+        <span class="sample-link" onclick="loadSample()">Load sample data</span>
+
+        <wa-textarea id="csvInput" rows="10" placeholder="Paste CSV here. First row = candidate names. Remaining rows = ranked ballots (1 = first choice, 2 = second, etc). To skip, set the value to the last choice"></wa-textarea>
+
+        <div class="controls">
+          <wa-input id="seatsInput" type="number" label="Seats" value="1" min="1"></wa-input>
+          <wa-select id="quotaSelect" label="Quota" value="droop">
+            <wa-option value="droop">Droop</wa-option>
+            <wa-option value="hare">Hare</wa-option>
+          </wa-select>
+        </div>
+
+        <wa-button variant="brand" onclick="runElection()">Calculate</wa-button>
+
+        <div id="premiumBar" style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;margin-bottom:1rem;font-size:0.85rem;"></div>
+
+        <div id="output">Results will appear here.</div>
+      </wa-card>
+
+        <div class="ad-sidebar-slot">
+          <script src='https://dcash.archwizard.xyz/embed.js?publisher=1&format=sidebar'></script>
+        </div>
+    </div>
+
+    <script>
+      var DCASH_ORIGIN = 'https://dcash.archwizard.xyz';
+      var MY_ACCOUNT = 'DC-4314C98E';
+      var PRICE = 20;
+      var PREMIUM_DURATION_MS = 24 * 60 * 60 * 1000;
+      var FREE_RUN_LIMIT = 3;
+
+      function b64urlToBytes(s) {
+        s = s.replace(/-/g, '+').replace(/_/g, '/');
+        while (s.length % 4) s += '=';
+        var bin = atob(s);
+        var bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        return bytes;
+      }
+
+      function b64urlToString(s) {
+        return new TextDecoder().decode(b64urlToBytes(s));
+      }
+
+      async function verifyReceipt(token) {
+        var parts = token.split('.');
+        if (parts.length !== 3) throw new Error('malformed token');
+
+        var header = JSON.parse(b64urlToString(parts[0]));
+        var payload = JSON.parse(b64urlToString(parts[1]));
+
+        if (header.alg !== 'RS256') throw new Error('unexpected alg: ' + header.alg);
+
+        var res = await fetch(DCASH_ORIGIN + '/.well-known/jwks.json');
+        if (!res.ok) throw new Error('could not fetch signing keys');
+        var jwks = await res.json();
+
+        var jwk = null;
+        for (var i = 0; i < jwks.keys.length; i++) {
+          if (jwks.keys[i].kid === header.kid) { jwk = jwks.keys[i]; break; }
+        }
+        if (!jwk) {
+          for (var j = 0; j < jwks.keys.length; j++) {
+            if (jwks.keys[j].kty === 'RSA') { jwk = jwks.keys[j]; break; }
+          }
+        }
+        if (!jwk) throw new Error('no matching signing key');
+
+        var key = await crypto.subtle.importKey(
+          'jwk', jwk,
+          { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+          false, ['verify']
+        );
+
+        var data = new TextEncoder().encode(parts[0] + '.' + parts[1]);
+        var sig = b64urlToBytes(parts[2]);
+        var ok = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, sig, data);
+        if (!ok) throw new Error('signature invalid');
+
+        if (payload.dst !== MY_ACCOUNT) throw new Error('receipt is for a different account');
+        if (Number(payload.amount) !== PRICE) throw new Error('receipt amount does not match price');
+        if (typeof payload.iat !== 'number') throw new Error('receipt missing issued-at');
+
+        var iatMs = payload.iat * 1000;
+        var now = Date.now();
+        if (iatMs > now + 5 * 60 * 1000) throw new Error('receipt timestamp is in the future');
+
+        var expiresAt = iatMs + PREMIUM_DURATION_MS;
+        if (expiresAt <= now) throw new Error('receipt has expired — premium window has passed');
+
+        return { payload: payload, expiresAt: expiresAt };
+      }
+
+      function getPremium() {
+        try {
+          var raw = localStorage.getItem('dcash_premium');
+          if (!raw) return null;
+          var p = JSON.parse(raw);
+          if (p && p.expiresAt > Date.now()) return p;
+          localStorage.removeItem('dcash_premium');
+        } catch (e) {}
+        return null;
+      }
+
+      function isPremium() { return !!getPremium(); }
+
+      function getRunCount() {
+        return parseInt(localStorage.getItem('dcash_run_count') || '0', 10) || 0;
+      }
+
+      function incRunCount() {
+        var n = getRunCount() + 1;
+        localStorage.setItem('dcash_run_count', String(n));
+        return n;
+      }
+
+      function paymentLink() {
+        var redirect = location.origin + location.pathname;
+        var params = new URLSearchParams({
+          dst: MY_ACCOUNT,
+          amount: String(PRICE),
+          memo: 'STVCalc Premium',
+          purpose: 'Unlock Premium Mode (24h, unlimited calculations)',
+          redirect_uri: redirect
+        });
+        return DCASH_ORIGIN + '/pay?' + params.toString();
+      }
+
+      function cleanUrl() {
+        history.replaceState({}, '', location.pathname);
+      }
+
+      function updatePremiumUI(message) {
+        var bar = document.getElementById('premiumBar');
+        if (!bar) return;
+        bar.innerHTML = '';
+
+        var premium = getPremium();
+        var status = document.createElement('span');
+
+        if (premium) {
+          status.textContent = '★ Premium active — unlimited runs until ' +
+            new Date(premium.expiresAt).toLocaleString();
+          bar.appendChild(status);
+        } else {
+          var used = getRunCount();
+          var remaining = Math.max(0, FREE_RUN_LIMIT - used);
+          status.textContent = 'Free plan: ' + remaining + ' of ' + FREE_RUN_LIMIT + ' calculations remaining.';
+          bar.appendChild(status);
+
+          var btn = document.createElement('wa-button');
+          btn.setAttribute('size', 'small');
+          btn.setAttribute('variant', 'brand');
+          btn.textContent = 'Unlock Premium — ' + PRICE + ' DCoins / day';
+          btn.addEventListener('click', function () { location.href = paymentLink(); });
+          bar.appendChild(btn);
+        }
+
+        if (message) {
+          var note = document.createElement('span');
+          note.style.opacity = '0.8';
+          note.textContent = message;
+          bar.appendChild(note);
+        }
+      }
+
+      async function handlePaymentRedirect() {
+        var params = new URLSearchParams(location.search);
+
+        if (params.get('error') === 'denied') {
+          cleanUrl();
+          updatePremiumUI('Payment was denied.');
+          return;
+        }
+
+        var token = params.get('token');
+        if (!token) return;
+
+        try {
+          var result = await verifyReceipt(token);
+          localStorage.setItem('dcash_premium', JSON.stringify({
+            token: token,
+            tx_id: result.payload.tx_id,
+            expiresAt: result.expiresAt
+          }));
+          updatePremiumUI('Premium unlocked!');
+        } catch (e) {
+          updatePremiumUI('Could not verify payment receipt: ' + e.message);
+        } finally {
+          cleanUrl();
+        }
+      }
+
+      function parseCSV(raw) {
+        var lines = raw.trim().split('\n').map(function(line) {
+          return line.split(',').map(function(cell) { return cell.trim(); });
+        });
+        var headerRow = lines[0];
+        var names = [];
+        for (var i = 0; i < headerRow.length; i++) {
+          if (headerRow[i] !== '') {
+            names.push(headerRow[i]);
+          } else {
+            break;
+          }
+        }
+        var width = names.length;
+        var votes = [];
+        for (var r = 1; r < lines.length; r++) {
+          var ballot = [];
+          for (var c = 0; c < width; c++) {
+            var cell = lines[r][c] || '';
+            if (cell === 'Abstain' || cell === '') {
+              ballot.push('0');
+            } else {
+              ballot.push(cell);
+            }
+          }
+          votes.push(ballot);
+        }
+        return { names: names, votes: votes };
+      }
+
+      function countVotes(votes, weights, numCandidates) {
+        var counts = [];
+        for (var i = 0; i < numCandidates; i++) counts.push(0);
+        for (var j = 0; j < votes.length; j++) {
+          var ballot = votes[j];
+          var idx = ballot.indexOf('1');
+          if (idx !== -1) {
+            counts[idx] += weights[j];
+          }
+        }
+        return counts;
+      }
+
+      function winUpdate(winnerIdx, votes, weights, winnerCount, quota, elimSet, log) {
+        var factor = 1 - quota / winnerCount;
+        log('  Surplus transfer factor: ' + factor.toFixed(4));
+        for (var b = 0; b < votes.length; b++) {
+          var ballot = votes[b];
+          if (ballot[winnerIdx] === '1') {
+            for (var j = 0; j < ballot.length; j++) {
+              ballot[j] = String(parseInt(ballot[j]) - 1);
+            }
+            if (ballot.indexOf('1') !== -1) {
+              while (elimSet.has(ballot.indexOf('1'))) {
+                for (var j = 0; j < ballot.length; j++) {
+                  ballot[j] = String(parseInt(ballot[j]) - 1);
+                }
+                if (ballot.indexOf('1') === -1) break;
+              }
+            }
+            weights[b] = factor * weights[b];
+          }
+        }
+        elimSet.add(winnerIdx);
+      }
+
+      function lossUpdate(loserIdx, votes, elimSet) {
+        for (var b = 0; b < votes.length; b++) {
+          var ballot = votes[b];
+          if (ballot[loserIdx] === '1') {
+            for (var j = 0; j < ballot.length; j++) {
+              ballot[j] = String(parseInt(ballot[j]) - 1);
+            }
+            if (ballot.indexOf('1') !== -1) {
+              while (elimSet.has(ballot.indexOf('1'))) {
+                for (var j = 0; j < ballot.length; j++) {
+                  ballot[j] = String(parseInt(ballot[j]) - 1);
+                }
+                if (ballot.indexOf('1') === -1) break;
+              }
+            }
+          }
+        }
+        elimSet.add(loserIdx);
+      }
+
+      function formatRow(names, values) {
+        var nameLine = '';
+        var valLine = '';
+        for (var i = 0; i < names.length; i++) {
+          var label = names[i].length > 7 ? names[i].substring(0, 7) : names[i];
+          while (label.length < 9) {
+            label = label.length % 2 === 0 ? ' ' + label : label + ' ';
+          }
+          nameLine += label;
+          var val = values[i].toFixed(3);
+          while (val.length < 9) {
+            val = val.length % 2 === 0 ? ' ' + val : val + ' ';
+          }
+          valLine += val;
+        }
+        return nameLine + '\n' + valLine;
+      }
+
+      function runElection() {
+        var outputEl = document.getElementById('output');
+        var lines = [];
+        function log(msg) { lines.push(msg); }
+
+        var csvRaw = document.getElementById('csvInput').value;
+        if (!csvRaw.trim()) {
+          outputEl.textContent = 'Error: paste CSV data first.';
+          return;
+        }
+
+        if (!isPremium() && getRunCount() >= FREE_RUN_LIMIT) {
+          outputEl.textContent =
+            'You have used all ' + FREE_RUN_LIMIT + ' free calculations.\n\n' +
+            'Unlock Premium Mode for ' + PRICE + ' DCoins to get unlimited ' +
+            'calculations for 24 hours. Use the "Unlock Premium" button above.';
+          updatePremiumUI();
+          return;
+        }
+
+        var seats = parseInt(document.getElementById('seatsInput').value) || 1;
+        var quotaType = document.getElementById('quotaSelect').value;
+
+        var parsed = parseCSV(csvRaw);
+        var names = parsed.names;
+        var votes = parsed.votes;
+        var totalVotes = votes.length;
+
+        log('Candidates: ' + names.join(', '));
+        log('Total ballots: ' + totalVotes);
+        log('Seats: ' + seats);
+        log('');
+
+        var weights = [];
+        for (var i = 0; i < votes.length; i++) weights.push(1);
+
+        var quota;
+        if (quotaType === 'hare') {
+          quota = totalVotes / seats;
+          log('Hare quota = ' + totalVotes + ' / ' + seats + ' = ' + quota.toFixed(3));
+        } else {
+          quota = Math.floor(totalVotes / (seats + 1)) + 1;
+          log('Droop quota = floor(' + totalVotes + ' / ' + (seats + 1) + ') + 1 = ' + quota);
+        }
+        log('');
+
+        var seatsLeft = seats;
+        var candidatesLeft = names.length;
+        var elimSet = new Set();
+        var winners = [];
+        var round = 1;
+
+        while (seatsLeft > 0) {
+          log('──── Round ' + round + ' ────');
+          var counts = countVotes(votes, weights, names.length);
+          log(formatRow(names, counts));
+          log('');
+
+          var foundWinner = false;
+
+          for (var w = 0; w < counts.length; w++) {
+            if (counts[w] >= quota) {
+              log('✓ ' + names[w] + ' wins a seat! (' + counts[w].toFixed(3) + ' >= ' + quota + ')');
+              winners.push(names[w]);
+              winUpdate(w, votes, weights, counts[w], quota, elimSet, log);
+              seatsLeft--;
+              candidatesLeft--;
+              foundWinner = true;
+            }
+          }
+
+          if (!foundWinner) {
+            var leastVotes = totalVotes + 1;
+            var loserIdx = -1;
+            for (var c = 0; c < counts.length; c++) {
+              if (counts[c] > 0 && counts[c] < leastVotes) {
+                leastVotes = counts[c];
+                loserIdx = c;
+              }
+            }
+            if (loserIdx !== -1) {
+              log('✗ ' + names[loserIdx] + ' eliminated (' + counts[loserIdx].toFixed(3) + ' votes)');
+              lossUpdate(loserIdx, votes, elimSet);
+              candidatesLeft--;
+            }
+          }
+
+          if (seatsLeft > 0 && seatsLeft === candidatesLeft) {
+            var remaining = [];
+            for (var i = 0; i < names.length; i++) {
+              if (!elimSet.has(i)) {
+                remaining.push(names[i]);
+                winners.push(names[i]);
+              }
+            }
+            log('');
+            log(remaining.join(' and ') + ' win the remaining seat(s) by default.');
+            seatsLeft = 0;
+          }
+
+          log('');
+          round++;
+          if (round > names.length * 2) {
+            log('Too many rounds — something went wrong.');
+            break;
+          }
+        }
+
+        log('════════════════════════════════');
+        log('Winner(s): ' + winners.join(', '));
+        outputEl.textContent = lines.join('\n');
+
+        if (!isPremium()) {
+          incRunCount();
+          updatePremiumUI();
+        }
+      }
+      function loadSample() {
+        var sample = [
+          'Alice,Bob,Carol,Dave',
+          '1,2,3,4', '1,3,2,4', '2,1,3,4', '3,2,1,4', '1,2,4,3',
+          '4,3,2,1', '1,3,4,2', '2,1,3,4', '3,4,1,2', '1,2,3,4',
+          '4,3,1,2', '2,1,3,4', '1,4,2,3', '3,2,1,4', '1,2,3,4',
+          '2,3,4,1', '1,2,4,3', '4,1,2,3', '1,3,2,4', '2,1,4,3'
+        ].join('\n');
+        document.getElementById('csvInput').value = sample;
+        document.getElementById('seatsInput').value = '2';
+      }
+
+      updatePremiumUI();
+      handlePaymentRedirect();
+    </script>
+  </body>
+</html>
